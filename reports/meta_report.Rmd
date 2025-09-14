@@ -1,0 +1,63 @@
+---
+title: "Meta-analysis Report (Synthetic Data)"
+output:
+  html_document:
+    self_contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+# Knit from project root even though this file lives in /reports
+root <- normalizePath(file.path(dirname(knitr::current_input()), ".."))
+knitr::opts_knit$set(root.dir = root)
+library(readr); library(dplyr); library(metafor); library(knitr)
+```
+
+# Overview
+Random-effects meta-analysis on synthetic trials. 
+
+# Data
+```{r}
+d <- read_csv("data/synthetic_trials.csv", show_col_types = FALSE) |>
+  mutate(
+    vi  = ifelse(!is.na(sei), sei^2, vi),
+    sei = ifelse(!is.na(vi) & is.na(sei), sqrt(vi), sei),
+    study_id = as.character(study_id)
+  )
+head(d)
+```
+
+# Methods
+REML random-effects with **metafor**; heterogeneity via τ², I², H²; small-study bias via Egger test.
+
+# Results
+```{r}
+fit <- rma(yi = yi, vi = vi, data = d, method = "REML")
+egger <- try(regtest(fit, model = "rma"), silent = TRUE)
+res <- tibble::tibble(
+  k     = fit$k,
+  est   = as.numeric(fit$b),
+  se    = fit$se,
+  ci_lb = fit$ci.lb,
+  ci_ub = fit$ci.ub,
+  tau2  = fit$tau2,
+  I2    = fit$I2,
+  H2    = fit$H2,
+  Q     = fit$QE,
+  Q_p   = fit$QEp,
+  Egger_z = if (inherits(egger, "try-error")) NA_real_ else egger$zval,
+  Egger_p = if (inherits(egger, "try-error")) NA_real_ else egger$pval
+)
+kable(res, digits = 3, caption = "Random-effects meta-analysis summary (REML)")
+```
+
+# Forest plot
+```{r, fig.width=7, fig.height=9}
+slab <- if ("label" %in% names(d)) d$label else paste0("Study ", d$study_id)
+forest(fit, slab = slab, xlab = "Effect size")
+```
+
+# Funnel plot
+```{r, fig.width=7, fig.height=7}
+funnel(fit, xlab = "Effect size")
+```
